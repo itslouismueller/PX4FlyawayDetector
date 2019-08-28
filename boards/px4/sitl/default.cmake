@@ -25,9 +25,11 @@ px4_add_board(
 		attitude_estimator_q
 		camera_feedback
 		commander
+		crosstrack_err
 		dataman
 		ekf2
 		events
+		flyaway_monitor
 		fw_att_control
 		fw_pos_control_l1
 		rover_pos_control
