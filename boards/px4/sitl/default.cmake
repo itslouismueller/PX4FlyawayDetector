@@ -25,7 +25,7 @@ px4_add_board(
 		attitude_estimator_q
 		camera_feedback
 		commander
-		crosstrack_err
+		#crosstrack_err
 		dataman
 		ekf2
 		events

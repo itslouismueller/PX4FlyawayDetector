@@ -15,7 +15,8 @@
 #include <math.h>
 
 #include <uORB/uORB.h>
-#include <uORB/topics/sensor_combined.h>
+#include <uORB/topics/vehicle_angular_velocity.h>
+#include <uORB/topics/vehicle_rates_setpoint.h>
 #include <uORB/topics/position_controller_status.h>
 
 extern "C" __EXPORT int flyaway_monitor_main(int argc, char *argv[]);
@@ -34,13 +35,20 @@ int flyaway_monitor_main(int argc, char *argv[])
     double rollingTot = 0.0;
     int i = 0;
     double xtrack_err = 0.0;
-    double nav_roll = 0.0;
+    double nav_roll_dps = 0.0;
+    double veh_roll_dps = 0.0;
+    double rollDiff_dps = 0.0;
 
 
 
 
     /* subscribe to sensor_combined topic */
     int sensor_sub_fd = orb_subscribe(ORB_ID(position_controller_status));
+    int veh_rate_sub_fd = orb_subscribe(ORB_ID(vehicle_rates_setpoint));
+    int veh_rateang_sub_fd = orb_subscribe(ORB_ID(vehicle_angular_velocity));
+
+
+
     /* limit the update rate to 5 Hz */
     orb_set_interval(sensor_sub_fd, 200);
 
@@ -77,19 +85,23 @@ int flyaway_monitor_main(int argc, char *argv[])
             if (fds[0].revents & POLLIN) {
                 /* obtained data for the first file descriptor */
                 struct position_controller_status_s raw;
+                struct vehicle_rates_setpoint_s vehset;
+                struct vehicle_angular_velocity_s vehraw;
                 /* copy sensors raw data into local buffer */
-                orb_copy(ORB_ID(position_controller_status), sensor_sub_fd, &raw);
+                orb_copy(ORB_ID(position_controller_status), sensor_sub_fd, &raw); // position structure
+                orb_copy(ORB_ID(vehicle_rates_setpoint), veh_rate_sub_fd, &vehset); // vehicle setpoint structure
+                orb_copy(ORB_ID(vehicle_angular_velocity), veh_rateang_sub_fd, &vehraw); // vehicle angular rate stucture
 
 
-                nav_roll = (double)raw.nav_roll;
-                //veh_roll = (double)raw.
+                nav_roll_dps = (double)vehset.roll * 180/3.14;    // set roll rate
+                veh_roll_dps = (double)vehraw.xyz[0] * 180/3.14;  // actual roll rate
                 xtrack_err = (double)raw.xtrack_error;
                 current_dist_m = (double)raw.wp_dist;
                 current_time_us = (double)raw.timestamp;
                 current_time_s = current_time_us / 1000000;
 
                 progress_rate_m_s = (prev_dist_m - current_dist_m)/(prev_time_s - current_time_s);
-
+                rollDiff_dps = nav_roll_dps - veh_roll_dps;
 
                 //avoiding spikes from new waypoint
                 if (progress_rate_m_s > 100 || progress_rate_m_s < -100){
@@ -100,7 +112,6 @@ int flyaway_monitor_main(int argc, char *argv[])
                     buffer[i%windowSize] = progress_rate_m_s;
                 }
 
-
                 //clearing rollingTot
                 rollingTot = 0.0;
 
@@ -110,12 +121,14 @@ int flyaway_monitor_main(int argc, char *argv[])
 
                 movingAvg = rollingTot/(double)windowSize;
 
-                if (movingAvg < 0){
-                    PX4_INFO("PROGRESS ---- WP Dist (m): %8.4f  MA Progress Rate (m/s): %8.4f  Inst Rate (m/s): %8.4f  Xtrack Err: %8.4f  Nav Roll: %8.4f", current_dist_m, movingAvg,  buffer[i%windowSize], xtrack_err, nav_roll);
+                // if (movingAvg < 0){
+                //    PX4_INFO("PROGRESS ---- WP Dist (m): %8.4f  MA Progress Rate (m/s): %8.4f  Inst Rate (m/s): %8.4f  Xtrack Err: %8.4f  (Nav, Veh, Diff) Roll deg/s: %8.4f %8.4f %8.4f", current_dist_m, movingAvg,  buffer[i%windowSize], xtrack_err, nav_roll_dps, veh_roll_dps, rollDiff_dps);
+                //}
+                //else{
+                if (movingAvg > 0){
+                    PX4_INFO("NO PROGRESS - WP Dist (m): %8.4f  MA Progress Rate (m/s): %8.4f  Inst Rate (m/s): %8.4f  Xtrack Err: %8.4f  (Nav, Veh, Diff) Roll deg/s: %8.4f %8.4f %8.4f", current_dist_m, movingAvg,  buffer[i%windowSize], xtrack_err, nav_roll_dps, veh_roll_dps, rollDiff_dps);
                 }
-                else{
-                    PX4_INFO("NO PROGRESS - WP Dist (m): %8.4f  MA Progress Rate (m/s): %8.4f  Inst Rate (m/s): %8.4f  Xtrack Err: %8.4f  Nav Roll: %8.4f", current_dist_m, movingAvg,  buffer[i%windowSize], xtrack_err, nav_roll);
-                }
+                //}
 
                 prev_dist_m = current_dist_m;
                 prev_time_s = current_time_s;
